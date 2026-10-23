@@ -28,7 +28,7 @@ CACHE = ROOT / ".cache" / "fonts"
 DGN_COMMIT = "291d4fb201a647f128c02f9e916b057a266e600a"
 LV_FONT_CONV_VERSION = "1.5.3"
 
-NOTO_URL = "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/Variable/TTF/Subset/NotoSansSC-VF.ttf"
+NOTO_URL = "https://raw.githubusercontent.com/Auuueser/LC-Chinese-Project/e9ce4920627389fc772837acf2d220a034bc0e98/fonts/NotoSansSC-VF.ttf"
 NOTO_SHA256 = "763146584CF0710223441356B4395E279021B0806C196614377A7A0174AE074A"
 MONTSERRAT_URL = "https://raw.githubusercontent.com/lvgl/lvgl/v8.3.11/scripts/built_in_font/Montserrat-Medium.ttf"
 MONTSERRAT_SHA256 = "421F26B23E2BE6B98373D32ACD3CB2897B154D4BF0A77D26534CE476E4CBED53"
