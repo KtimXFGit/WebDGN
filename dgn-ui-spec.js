@@ -5,7 +5,7 @@ export const DGN_UI_SPEC = {
     commit: "291d4fb201a647f128c02f9e916b057a266e600a",
     syncedAt: "2026-10-23"
   },
-  display: { width: 240, height: 320, statusHeight: 24, navHeight: 32, contentY: 24, contentHeight: 264 },
+  display: { width: 240, height: 320, statusHeight: 24, navHeight: 26, contentY: 24, contentHeight: 270 },
   palette: {
     bg:"#F3F7FC", bar:"#FFFFFF", panel:"#FFFFFF", panel2:"#E8F2FF",
     cyan:"#1677D2", blue:"#0B5CAD", green:"#1F8E5A", yellow:"#B87500",
@@ -17,8 +17,7 @@ export const DGN_UI_SPEC = {
     status:{x:6,y:4,w:228,h:26},
     logScale:{x:6,y:36,w:42,h:149},
     primary:{x:54,y:36,w:180,h:149},
-    total:{x:6,y:191,w:111,h:67},
-    count:{x:123,y:191,w:111,h:67}
+    total:{x:6,y:197,w:228,h:67}
   },
   measurement: {
     primary:{x:8,y:6,w:224,h:112}, total:{x:8,y:124,w:224,h:50},
