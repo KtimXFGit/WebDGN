@@ -6,9 +6,9 @@ const {W,H,RES,hexToLv565,lvColorMix16,lv565ToRgb888,decodeGlyph,b64}=C;
 const SPEC = Object.freeze({
   display: { contentY: 24 },
   home: {
-    host: { x: 6, y: 4, w: 111, h: 74 },
-    probe: { x: 123, y: 4, w: 111, h: 74 },
-    primary: { x: 6, y: 84, w: 228, h: 101 },
+    status: { x: 6, y: 4, w: 228, h: 26 },
+    logScale: { x: 6, y: 36, w: 42, h: 149 },
+    primary: { x: 54, y: 36, w: 180, h: 149 },
     total: { x: 6, y: 191, w: 111, h: 67 },
     count: { x: 123, y: 191, w: 111, h: 67 }
   },
