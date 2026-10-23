@@ -12,12 +12,12 @@ export const DGN_UI_SPEC = {
     red:"#C73745", violet:"#5B67D6", text:"#17324D", muted:"#5E7892",
     grid:"#B8CCE5", off:"#9AAFC3"
   },
-  typography: { body:14, title:16, digits:46 },
+  typography: { body:14, title:16, digits:46, primaryScale:1.18 },
   home: {
     status:{x:6,y:4,w:228,h:26},
-    logScale:{x:6,y:36,w:42,h:149},
-    primary:{x:54,y:36,w:180,h:149},
-    total:{x:6,y:197,w:228,h:67}
+    logScale:{x:6,y:36,w:42,h:168},
+    primary:{x:54,y:36,w:180,h:168},
+    total:{x:6,y:216,w:228,h:48}
   },
   measurement: {
     primary:{x:8,y:6,w:224,h:112}, total:{x:8,y:124,w:224,h:50},
