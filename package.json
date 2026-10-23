@@ -4,8 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node ./tests/spec.test.mjs && node ./tests/production-render.test.mjs && node ./tests/framebuffer.test.mjs",
+    "test": "node ./tests/spec.test.mjs && node ./tests/production-render.test.mjs && node ./tests/framebuffer.test.mjs && node ./tests/framebuffer-diff.test.mjs",
     "export:lvgl": "node ./tools/export-lvgl-layout.mjs",
-    "build:resources": "python3 ./tools/build-production-resources.py"
+    "build:resources": "python3 ./tools/build-production-inputs.py",
+    "diff:framebuffer": "node ./tools/diff-framebuffer.mjs"
+  },
+  "devDependencies": {
+    "lv_font_conv": "1.5.3"
   }
 }
