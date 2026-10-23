@@ -47,10 +47,12 @@ function drawHeader(f, s) {
 }
 
 function drawNav(f, s) {
-  f.rect(0, 288, 240, 32, PAL.panel);
-  f.hline(0, 288, 240, PAL.grid);
+  const navH = SPEC.display.navHeight || 26;
+  const navY = 320 - navH;
+  f.rect(0, navY, 240, navH, PAL.panel);
+  f.hline(0, navY, 240, PAL.grid);
   const names = s.language === 'zh' ? SPEC.nav.labels : SPEC.nav.labelsEn;
-  for (let i = 0; i < 3; i++) f.textCenter(i * 80, 80, 296, '16', names[i], i === s.page ? PAL.blue : PAL.muted);
+  for (let i = 0; i < 3; i++) f.textCenter(i * 80, 80, navY + 4, '16', names[i], i === s.page ? PAL.blue : PAL.muted);
 }
 
 function formatDose(v) { if (v < 1) return v.toFixed(3); if (v < 100) return v.toFixed(2); return v.toFixed(1); }
@@ -84,7 +86,7 @@ function drawLogScale(f, s, r) {
 function drawHome(f, s) {
   const oy = SPEC.display.contentY;
   const shift = r => ({ ...r, y: r.y + oy });
-  const status = shift(SPEC.home.status), logScale = shift(SPEC.home.logScale), primary = shift(SPEC.home.primary), total = shift(SPEC.home.total), count = shift(SPEC.home.count);
+  const status = shift(SPEC.home.status), logScale = shift(SPEC.home.logScale), primary = shift(SPEC.home.primary), total = shift(SPEC.home.total);
 
   card(f, status);
   const kind = s.host || 'normal';
@@ -108,10 +110,6 @@ function drawHome(f, s) {
   f.text(total.x + 7, total.y + 5, '14', tx(s, '累计剂量', 'TOTAL'), PAL.muted);
   f.text(total.x + 7, total.y + 25, '14', `${Number(s.total || 0).toFixed(3)} uSv`, PAL.text);
   f.text(total.x + 7, total.y + 47, '14', '00:12:36', PAL.muted);
-  card(f, count);
-  f.text(count.x + 7, count.y + 5, '14', tx(s, '计数率', 'COUNT RATE'), PAL.muted);
-  f.text(count.x + 7, count.y + 25, '14', `CPS ${Number(s.cps || 0).toFixed(1)}`, PAL.text);
-  f.text(count.x + 7, count.y + 47, '14', `CPM ${s.cpm || 0}`, PAL.text);
 }
 
 function drawTrend(f, s) {
@@ -195,7 +193,8 @@ function render(state, canvas) {
 }
 
 function hitTest(state, x, y) {
-  if (y >= 288) {
+  const navY = 320 - (SPEC.display.navHeight || 26);
+  if (y >= navY) {
     const p = clamp(Math.floor(x / 80), 0, 2);
     state.page = p;
     return true;
