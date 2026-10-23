@@ -7,10 +7,11 @@ const SPEC = Object.freeze({
   display: { contentY: 24, navHeight: 26 },
   home: {
     status: { x: 6, y: 4, w: 228, h: 26 },
-    logScale: { x: 6, y: 36, w: 42, h: 149 },
-    primary: { x: 54, y: 36, w: 180, h: 149 },
-    total: { x: 6, y: 197, w: 228, h: 67 }
+    logScale: { x: 6, y: 36, w: 42, h: 168 },
+    primary: { x: 54, y: 36, w: 180, h: 168 },
+    total: { x: 6, y: 216, w: 228, h: 48 }
   },
+  typography: { primaryScale: 1.18 },
   trend: { chart: { x: 30, y: 36, w: 198, h: 138 }, range: 50 },
   nav: { labels: ['设置', '测量', '趋势'], labelsEn: ['SET', 'MEASURE', 'TREND'] }
 });
@@ -98,6 +99,29 @@ class Framebuffer {
     }
     return adv;
   }
+  glyphScaled(x, y, fontKey, cp, color, scale = 1) {
+    if (scale === 1) return this.glyph(x, y, fontKey, cp, color);
+    const font = RES()?.fonts?.[fontKey];
+    const glyph = font?.glyphs?.[String(cp)] || font?.glyphs?.['63'];
+    if (!font || !glyph) return 0;
+    const [adv, w, h, ox, oy] = glyph;
+    if (!w || !h) return Math.round(adv * scale);
+    const cov = decodeGlyph(fontKey, cp, font, glyph);
+    const dw = Math.max(1, Math.round(w * scale));
+    const dh = Math.max(1, Math.round(h * scale));
+    const dx0 = x + Math.round(ox * scale);
+    const topOffset = font.lineHeight - font.baseLine - h - oy;
+    const dy0 = y + Math.round(topOffset * scale);
+    for (let dy = 0; dy < dh; dy++) {
+      const sy = Math.min(h - 1, Math.floor(dy / scale));
+      for (let dx = 0; dx < dw; dx++) {
+        const sx = Math.min(w - 1, Math.floor(dx / scale));
+        const a = cov[sy * w + sx];
+        if (a) this.pixel(dx0 + dx, dy0 + dy, color, a * 17);
+      }
+    }
+    return Math.round(adv * scale);
+  }
   textWidth(fontKey, text) {
     const f = RES()?.fonts?.[fontKey];
     if (!f) return 0;
@@ -108,15 +132,27 @@ class Framebuffer {
     }
     return width;
   }
+  textWidthScaled(fontKey, text, scale = 1) {
+    return Math.round(this.textWidth(fontKey, text) * scale);
+  }
   text(x, y, fontKey, text, color) {
     let p = x;
     for (const ch of String(text)) p += this.glyph(p, y, fontKey, ch.codePointAt(0), color);
+    return p - x;
+  }
+  textScaled(x, y, fontKey, text, color, scale = 1) {
+    let p = x;
+    for (const ch of String(text)) p += this.glyphScaled(p, y, fontKey, ch.codePointAt(0), color, scale);
     return p - x;
   }
   textRight(right, y, fontKey, text, color) { return this.text(right - this.textWidth(fontKey, text), y, fontKey, text, color); }
   textCenter(left, width, y, fontKey, text, color) {
     const tw = this.textWidth(fontKey, text);
     return this.text(left + Math.max(0, Math.floor((width - tw) / 2)), y, fontKey, text, color);
+  }
+  textCenterScaled(left, width, y, fontKey, text, color, scale = 1) {
+    const tw = this.textWidthScaled(fontKey, text, scale);
+    return this.textScaled(left + Math.max(0, Math.floor((width - tw) / 2)), y, fontKey, text, color, scale);
   }
   icon(x, y, icon, color) {
     if (!icon) return;
