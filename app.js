@@ -5,14 +5,31 @@ const state={page:1,language:'zh',dose:.12,total:.018,cps:.7,cpm:42,battery:82,c
 function render(){
   state.now=new Date();
   const canvas=$('#lcd');
-  let source=null;
-  try{source=window.DGNProductionUI.render(canvas,state,S).resourceSource;$('#renderMode').textContent='Production bitmap';$('#renderMode').className='ok';}
-  catch(error){console.error(error);$('#renderMode').textContent='资源未生成';$('#renderMode').className='bad';}
+  const resources=window.DGNProductionResources;
+  let result=null;
+  try{
+    if(!resources) throw new Error('Production resource object is missing');
+    if(!window.DGNProductionUI) throw new Error('Production renderer is missing');
+    result=window.DGNProductionUI.render(state,canvas);
+    $('#renderMode').textContent='Production bitmap';
+    $('#renderMode').className='ok';
+  }
+  catch(error){
+    console.error(error);
+    $('#renderMode').textContent=resources?'渲染异常':'资源未生成';
+    $('#renderMode').className='bad';
+  }
   $('#doseOut').textContent=`${state.dose.toFixed(2)} µSv/h`;
   $('#batteryOut').textContent=`${state.battery}%`;
   $('#baseline').textContent=`DGN_01 main @ ${S.source.commit.slice(0,8)}`;
-  $('#resourceInfo').textContent=source?`lv_font_conv ${source.lvFontConv} · Noto ${source.notoSha256.slice(0,8)} · 4bpp`:'Production resource missing';
-  $('#stateDump').textContent=JSON.stringify({page:state.page,language:state.language,dose:state.dose,battery:state.battery,probe:state.probe,source:S.source.commit.slice(0,8)},null,2);
+  if(result&&resources){
+    const glyphs14=resources.fonts?.['14']?.glyphCount;
+    const commit=(result.sourceCommit||resources.sourceCommit||S.source.commit).slice(0,8);
+    $('#resourceInfo').textContent=`DGN ${commit} · compiled LVGL C · 4bpp${glyphs14?` · 14px ${glyphs14} glyphs`:''}`;
+  }else{
+    $('#resourceInfo').textContent=resources?'Production render failed':'Production resource missing';
+  }
+  $('#stateDump').textContent=JSON.stringify({page:state.page,language:state.language,dose:state.dose,battery:state.battery,probe:state.probe,source:S.source.commit.slice(0,8),framebufferHash:result?.framebufferHash||null},null,2);
 }
 function move(d){
   if(state.page===0){state.selected=Math.max(0,Math.min(15,state.selected+d));if(state.selected<state.listFirst)state.listFirst=state.selected;if(state.selected>=state.listFirst+6)state.listFirst=state.selected-5;}
