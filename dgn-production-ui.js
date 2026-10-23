@@ -7,7 +7,20 @@ function tx(s, zh, en) { return s.language === 'zh' ? zh : en; }
 function statusColor(k) { return k === 'fault' ? PAL.red : k === 'alarm' ? PAL.yellow : k === 'normal' ? PAL.green : k === 'detect' ? PAL.blue : PAL.muted; }
 function statusText(s, k) { return ({ normal: tx(s, '正常', 'Normal'), alarm: tx(s, '报警', 'Alarm'), fault: tx(s, '故障', 'Fault'), detect: tx(s, '识别中', 'Detect'), offline: tx(s, '未连接', 'Offline') })[k] || tx(s, '未连接', 'Offline'); }
 function card(f, r, border = PAL.grid, width = 1) { f.roundRect(r.x, r.y, r.w, r.h, 4, PAL.panel, border, width); }
-function dot(f, x, y, color) { f.rect(x, y, 6, 6, color); }
+function dot(f, x, y, color) { f.roundRect(x, y, 7, 7, 3, color, null, 0); }
+
+function drawCellularBars(f) {
+  for (let i = 0; i < 4; i++) {
+    const height = 4 + i * 3;
+    f.roundRect(132 + i * 4, 5 + 14 - height, 3, height, 1, PAL.white, null, 0);
+  }
+}
+
+function batterySegments(percent) {
+  const p = clamp(Number(percent || 0), 0, 100);
+  return p >= 88 ? 4 : p >= 63 ? 3 : p >= 38 ? 2 : p >= 13 ? 1 : 0;
+}
+
 function drawHeader(f, s) {
   f.rect(0, 0, 240, 24, PAL.blue);
   const now = s.now instanceof Date ? s.now : new Date();
@@ -15,16 +28,22 @@ function drawHeader(f, s) {
   const mm = String(now.getMinutes()).padStart(2, '0');
   f.text(3, 4, '14', `${hh}:${mm}`, PAL.white);
 
-  /*
-   * Match ui_assets.c's fallback path exactly when the external resource bank
-   * is not present in Git: 4G/BT/battery are LVGL labels; GPS/sound use the
-   * compiled-in 16x16 A1 masks. Never synthesize a "close enough" icon.
-   */
-  if (s.cellular) f.text(132, 4, '14', '4G', PAL.white);
-  if (s.bluetooth) f.text(150, 4, '14', 'B', PAL.white);
-  if (s.gps) f.icon(168, 4, RES()?.icons?.gps, PAL.white);
-  f.icon(186, 4, s.sound ? RES()?.icons?.soundOn : RES()?.icons?.soundOff, PAL.white);
-  f.text(205, 4, '14', 'BAT', PAL.white);
+  /* Match the current DGN_01 header implementation: cellular is drawn as
+   * four signal bars, BT uses the external 16x16 A4 resource, GPS/sound use
+   * compiled-in A1 masks, and battery uses the external 30x14 A1 states. */
+  const icons = RES()?.icons || {};
+  if (s.cellular) drawCellularBars(f);
+  if (s.bluetooth) {
+    if (icons.statusBt) f.icon(150, 4, icons.statusBt, PAL.white);
+    else f.text(150, 4, '14', 'B', PAL.white);
+  }
+  if (s.gps) f.icon(168, 4, icons.gps, PAL.white);
+  f.icon(186, 4, s.sound ? icons.soundOn : icons.soundOff, PAL.white);
+
+  const externalPower = !!s.externalPower;
+  const batteryKey = externalPower ? 'batteryExternal' : `battery${batterySegments(s.battery)}`;
+  if (icons[batteryKey]) f.icon(205, 5, icons[batteryKey], externalPower ? '#00C853' : PAL.white);
+  else f.textRight(235, 4, '14', `${clamp(Number(s.battery || 0),0,100)}%`, PAL.white);
 }
 
 function drawNav(f, s) {
@@ -34,30 +53,57 @@ function drawNav(f, s) {
   for (let i = 0; i < 3; i++) f.textCenter(i * 80, 80, 296, '16', names[i], i === s.page ? PAL.blue : PAL.muted);
 }
 
-function statusCard(f, s, r, title, kind, l1, l2) {
-  card(f, r);
-  f.text(r.x + 6, r.y + 4, '14', title, PAL.text);
-  dot(f, r.x + (s.language === 'en' ? 49 : 39), r.y + 10, statusColor(kind));
-  f.textRight(r.x + 105, r.y + 4, '14', statusText(s, kind), statusColor(kind));
-  f.text(r.x + 6, r.y + 27, '14', l1, PAL.muted);
-  f.text(r.x + 6, r.y + 49, '14', l2, PAL.muted);
-}
-
 function formatDose(v) { if (v < 1) return v.toFixed(3); if (v < 100) return v.toFixed(2); return v.toFixed(1); }
+
+function drawLogScale(f, s, r) {
+  card(f, r);
+  f.textCenter(r.x, r.w, r.y + 5, '14', 'LOG', PAL.muted);
+  f.textCenter(r.x, r.w, r.y + 22, '14', '10k', PAL.muted);
+  f.textCenter(r.x, r.w, r.y + 126, '14', '.01', PAL.muted);
+
+  const dose = Math.max(0.01, Number(s.dose || 0));
+  const normalized = clamp((Math.log10(dose) + 2) / 6, 0, 1); /* 0.01 .. 10000 uSv/h */
+  const segments = 8;
+  const active = Math.max(1, Math.ceil(normalized * segments));
+  const bx = r.x + 11, by = r.y + 42, bw = 12, bh = 9, gap = 3;
+  for (let i = 0; i < segments; i++) {
+    const y = by + (segments - 1 - i) * (bh + gap);
+    f.roundRect(bx, y, bw, bh, 1, i < active ? PAL.cyan : PAL.off, null, 0);
+  }
+
+  const rangeH = segments * bh + (segments - 1) * gap;
+  const markerY = by + rangeH - Math.round(normalized * rangeH);
+  const mx = r.x + 27;
+  f.hline(mx, markerY - 2, 2, PAL.blue);
+  f.hline(mx, markerY - 1, 4, PAL.blue);
+  f.hline(mx, markerY, 6, PAL.blue);
+  f.hline(mx, markerY + 1, 4, PAL.blue);
+  f.hline(mx, markerY + 2, 2, PAL.blue);
+}
 
 function drawHome(f, s) {
   const oy = SPEC.display.contentY;
   const shift = r => ({ ...r, y: r.y + oy });
-  const host = shift(SPEC.home.host), probe = shift(SPEC.home.probe), primary = shift(SPEC.home.primary), total = shift(SPEC.home.total), count = shift(SPEC.home.count);
-  statusCard(f, s, host, tx(s, '主机', 'Host'), s.host || 'normal', tx(s, '温度 25.3 C', 'TEMP 25.3 C'), tx(s, '湿度 48.2%', 'HUM 48.2%'));
-  statusCard(f, s, probe, tx(s, '探头', 'Probe'), s.probe || 'offline', s.probeModel || '--', s.probe === 'offline' ? tx(s, '无探头', 'No probe') : tx(s, 'GM剂量率探头', 'GM dose probe'));
+  const status = shift(SPEC.home.status), logScale = shift(SPEC.home.logScale), primary = shift(SPEC.home.primary), total = shift(SPEC.home.total), count = shift(SPEC.home.count);
+
+  card(f, status);
+  const kind = s.host || 'normal';
+  dot(f, status.x + 9, status.y + 9, statusColor(kind));
+  const prefix = tx(s, '工作状态：', 'Working: ');
+  f.text(status.x + 24, status.y + 5, '14', prefix, PAL.text);
+  f.text(status.x + 24 + f.textWidth('14', prefix), status.y + 5, '14', statusText(s, kind), statusColor(kind));
+
+  drawLogScale(f, s, logScale);
+
   card(f, primary);
-  f.text(primary.x + 8, primary.y + 6, '16', tx(s, '剂量率', 'DOSE RATE'), PAL.muted);
-  f.textRight(primary.x + 218, primary.y + 6, '14', s.probe === 'normal' ? tx(s, '外部', 'External') : tx(s, '内部', 'Internal'), PAL.blue);
+  f.text(primary.x + 8, primary.y + 7, '16', tx(s, '剂量率', 'DOSE RATE'), PAL.muted);
+  f.textRight(primary.x + primary.w - 8, primary.y + 7, '14', s.probe === 'normal' ? tx(s, '外部', 'External') : tx(s, '内部', 'Internal'), PAL.blue);
   const val = formatDose(Number(s.dose || 0));
-  const vw = f.textWidth('46', val);
-  f.text(primary.x + 10 + Math.max(0, Math.floor((212 - vw) / 2)), primary.y + 35, '46', val, PAL.cyan);
-  f.textRight(primary.x + 218, primary.y + 76, '14', 'uSv/h', PAL.text);
+  const maxWidth = primary.w - 16;
+  const fontKey = f.textWidth('46', val) <= maxWidth ? '46' : '16';
+  f.textCenter(primary.x + 8, maxWidth, primary.y + (fontKey === '46' ? 48 : 65), fontKey, val, PAL.cyan);
+  f.textRight(primary.x + primary.w - 8, primary.y + 120, '14', 'uSv/h', PAL.text);
+
   card(f, total);
   f.text(total.x + 7, total.y + 5, '14', tx(s, '累计剂量', 'TOTAL'), PAL.muted);
   f.text(total.x + 7, total.y + 25, '14', `${Number(s.total || 0).toFixed(3)} uSv`, PAL.text);
