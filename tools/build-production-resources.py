@@ -233,7 +233,7 @@ def builtin_icons() -> dict:
     # Exact 16x16 alpha-4 external icon payloads from DGN_01 resource bank.
     # The first four bytes of each .bin are the LVGL image header and are omitted here.
     status_bt_file = base64.b64decode("DUAAAgAAAADwAAAAAAAAD/8AAAAAAAD///AAAAAAD////wAAAAD///D/8AAAAA8P8A//AAAA//////AAAAAP////AAAAAAAP/wAAAAAAAP//8AAAAAD/////8AAAD///////AAAA8A/w//AAAAAAD///AAAAAAAP//AAAAAAAA//AAAA")
-    status_4g_file = base64.b64decode("DUAAAgAAAAAAAAAAAAAAAAAAAAAABPAGzLIAAAAc4EsAewAAAJXgswAaAAAEoODQAAAAAAwg4OAHvQAAXbv6swAfAAAAAOBbAH4AAAAA4AjbbgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    status_4g_file = base64.b64decode("DUAAAgAAAAAAAAAAAAAAAAAAAAAABPAGzLIAAAAc4EsAewAAAJXgswAaAAAEoODQAAAAAAwg4OAHvQAAXbv6swAfAAAAAOBbAH4AAAAA4AjbbgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
     return {
         "gps": one_bit_icon(16, 16, gps),
         "soundOn": one_bit_icon(16, 16, sound_on),
