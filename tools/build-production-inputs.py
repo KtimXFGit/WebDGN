@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuild the pinned DGN_01 compiled fonts without cross-repo credentials.
-
-This mirrors DGN_01/3_PCTool/DGN01_Tool/build_lvgl_fonts.py. Public font inputs
-and tool versions are pinned; generated C files must have the same Git blob SHA
-as the compiled font sources committed in the pinned DGN_01 revision. Small
-status/battery LVGL .bin assets are embedded byte-for-byte with their Git blob
-SHA so Pages CI does not need credentials for the private DGN_01 repository.
-"""
+"""Rebuild pinned DGN_01 production inputs without private-repo credentials."""
 from __future__ import annotations
 
 import base64
@@ -26,7 +19,6 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "ui_font_charsets.json"
 CACHE = ROOT / ".cache" / "fonts"
 BASE_PATH = ROOT / "tools" / "build-production-resources.py"
-
 NOTO_URL = "https://raw.githubusercontent.com/Auuueser/LC-Chinese-Project/e9ce4920627389fc772837acf2d220a034bc0e98/fonts/NotoSansSC-VF.ttf"
 NOTO_SHA256 = "763146584CF0710223441356B4395E279021B0806C196614377A7A0174AE074A"
 MONTSERRAT_URL = "https://raw.githubusercontent.com/lvgl/lvgl/v8.3.11/scripts/built_in_font/Montserrat-Medium.ttf"
@@ -39,11 +31,10 @@ if spec is None or spec.loader is None:
 base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 
-# Exact LVGL .bin files from DGN_01@SOURCE_SHA. These are tiny alpha-only UI
-# assets, not font files. Each payload is re-verified against the private repo's
-# pinned Git blob SHA declared in base.EXTERNAL_ICON_SOURCES before use.
+# Exact LVGL .bin files from DGN_01@291d4fb. Their decoded bytes are checked
+# against the pinned Git blob SHA before being exposed to the Web renderer.
 PINNED_ICON_B64 = {
-    "status4g": "DUAAAgAAAAAAAAAAAAAAAAAAAAAABPAGzLIAAAAc4EsAewAAAJXgswAaAAAEoODQAAAAAAwg4OAHvQAAXbv6swAfAAAAAOBbAH4AAAAA4AjbbgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "status4g": "DUAAAgAAAAAAAAAAAAAAAAAAAAAABPAGzLIAAAAc4EsAewAAAJXgswAaAAAEoODQAAAAAAwg4OAHvQAAXbv6swAfAAAAAOBbAH4AAAAA4AjbbgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
     "statusBt": "DUAAAgAAAADwAAAAAAAAD/8AAAAAAAD///AAAAAAD////wAAAAD///D/8AAAAA8P8A//AAAA//////AAAAAP////AAAAAAAP/wAAAAAAAP//8AAAAAD/////8AAAD///////AAAA8A/w//AAAAAAD///AAAAAAAP//AAAAAAAA//AAAA",
     "statusGps": "DUAAAgAAAAAAAAAAAAAA///wAAAAAA////8AAAAA//AA//AAAA//D/8P/wAAD/D///D/AAAP8P//8P8AAA/w///w/wAAD/8P/w//AAAA//////AAAAAP////AAAAAAD///AAAAAAAPAPAAAAAAAADw8AAAAAAAAP8AAAAAAAAADwAAAA",
     "battery0": "C3jAAX///+CAAAAQgAAAEIAAABCAAAAcgAAAHIAAAByAAAAcgAAAHIAAAByAAAAQgAAAEIAAABB////g",
@@ -51,7 +42,7 @@ PINNED_ICON_B64 = {
     "battery2": "C3jAAX///+CAAAAQvvgAEL74ABC++AAcvvgAHL74ABy++AAcvvgAHL74ABy++AAQvvgAEIAAABB////g",
     "battery3": "C3jAAX///+CAAAAQvvvgEL774BC+++AcvvvgHL774By+++AcvvvgHL774By+++AQvvvgEIAAABB////g",
     "battery4": "C3jAAX///+CAAAAQvvvvkL7775C++++cvvvvnL7775y++++cvvvvnL7775y++++QvvvvkIAAABB////g",
-    "batteryExternal": "C3jAAX///+CAAAAQgAMAEIAHABCADgAcgBwAHIA/wByAB4AcgAcAHIAOAByADAQgBgAEIAAABB////g",
+    "batteryExternal": "C3jAAX///+CAAAAQgAMAEIAHABCADgAcgBwAHIA/wByAB4AcgAcAHIAOAByADAAQgBgAEIAAABB////g",
 }
 
 
@@ -82,49 +73,39 @@ def converter() -> Path:
     raise RuntimeError(f"lv_font_conv {LV_FONT_CONV_VERSION} is not installed")
 
 
-def production_font_ref(name: str, noto: bool) -> str:
-    if noto:
-        return r"<PROJECT>\3_PCTool\DGN01_Tool\font_build\NotoSansSC-Medium-500.ttf"
-    return r"<PROJECT>\1_Application\LVGL\scripts\built_in_font\Montserrat-Medium.ttf"
+def production_font_ref(noto: bool) -> str:
+    return (r"<PROJECT>\3_PCTool\DGN01_Tool\font_build\NotoSansSC-Medium-500.ttf"
+            if noto else r"<PROJECT>\1_Application\LVGL\scripts\built_in_font\Montserrat-Medium.ttf")
 
 
 def production_output_ref(name: str) -> str:
     return rf"<PROJECT>\1_Application\User\UI\Fonts\{name}.c"
 
 
-def generate(font: Path, size: int, symbols: str, name: str, output: Path, ascii_range: bool) -> bytes:
+def generate(font: Path, size: int, symbols: str, name: str, output: Path, noto: bool) -> bytes:
     cmd = [str(converter()), "--size", str(size), "--bpp", "4", "--format", "lvgl", "--font", str(font)]
-    if ascii_range:
+    if noto:
         cmd += ["--range", "0x20-0x7E"]
     cmd += ["--symbols", symbols, "--no-kerning", "--lv-include", "lvgl.h", "--lv-font-name", name, "-o", str(output)]
     subprocess.run(cmd, check=True)
-
     source = output.read_text(encoding="utf-8")
     source = source.replace("    .user_data = NULL,\n", "")
-    source = source.replace(str(font), production_font_ref(name, ascii_range))
+    source = source.replace(str(font), production_font_ref(noto))
     source = source.replace(str(output), production_output_ref(name))
-    if ascii_range:
-        metadata = f"Source SHA-256: {NOTO_SHA256}; weight: 500; bpp: 4; lossless RLE"
-    else:
-        metadata = f"Source SHA-256: {MONTSERRAT_SHA256}; Montserrat Medium"
-    metadata_line = metadata if "bpp: 4" in metadata else f"{metadata}; bpp: 4"
-    source = source.replace(" * Opts:", f" * {metadata_line}\n * Opts:", 1)
+    metadata = (f"Source SHA-256: {NOTO_SHA256}; weight: 500; bpp: 4; lossless RLE"
+                if noto else f"Source SHA-256: {MONTSERRAT_SHA256}; Montserrat Medium; bpp: 4")
+    source = source.replace(" * Opts:", f" * {metadata}\n * Opts:", 1)
     output.write_text(source.rstrip() + "\n", encoding="utf-8", newline="\n")
     return output.read_bytes()
-
-
-def verify_converter_version() -> None:
-    proc = subprocess.run([str(converter()), "--version"], check=True, text=True, capture_output=True)
-    text = (proc.stdout + proc.stderr).strip()
-    if LV_FONT_CONV_VERSION not in text:
-        raise RuntimeError(f"unexpected lv_font_conv version: {text}")
 
 
 def build_inputs() -> dict[str, bytes]:
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     noto_variable = download(NOTO_URL, CACHE / "NotoSansSC-VF.ttf", NOTO_SHA256)
     montserrat = download(MONTSERRAT_URL, CACHE / "Montserrat-Medium.ttf", MONTSERRAT_SHA256)
-    verify_converter_version()
+    version = subprocess.run([str(converter()), "--version"], check=True, text=True, capture_output=True)
+    if LV_FONT_CONV_VERSION not in (version.stdout + version.stderr):
+        raise RuntimeError("unexpected lv_font_conv version")
 
     result: dict[str, bytes] = {}
     with tempfile.TemporaryDirectory() as temp_name:
@@ -137,21 +118,18 @@ def build_inputs() -> dict[str, bytes]:
         check = TTFont(noto_static)
         if check["OS/2"].usWeightClass != 500 or "fvar" in check:
             raise RuntimeError("failed to freeze Noto Sans SC at weight 500")
-
         jobs = {
             "14": (noto_static, 14, config["14"], "ui_font_dgn_14", True),
             "16": (noto_static, 16, config["16"], "ui_font_dgn_16", True),
             "46": (montserrat, 46, "0123456789.-", "ui_font_dose_46", False),
         }
-        for key, (font, size, symbols, name, ascii_range) in jobs.items():
-            raw = generate(font, size, symbols, name, temp / f"{name}.c", ascii_range)
+        for key, (font, size, symbols, name, noto) in jobs.items():
+            raw = generate(font, size, symbols, name, temp / f"{name}.c", noto)
             expected = base.FONT_SOURCES[key]["blob"]
             actual = base.git_blob_sha(raw)
             print(f"font {key}: rebuilt Git blob {actual}; expected {expected}")
             if actual != expected:
-                raise RuntimeError(
-                    f"{name}: reconstructed C is not byte-identical to DGN_01 production blob: {actual} != {expected}"
-                )
+                raise RuntimeError(f"{name}: reconstructed C is not byte-identical to DGN_01 production blob")
             result[base.FONT_SOURCES[key]["path"]] = raw
     return result
 
@@ -169,7 +147,6 @@ static const uint8_t UI_SOUND_BITMAP[] = {
 def main() -> None:
     sources = build_inputs()
     sources[base.ASSET_SOURCE] = ASSET_STUB
-
     for name, encoded in PINNED_ICON_B64.items():
         meta = base.EXTERNAL_ICON_SOURCES[name]
         raw = base64.b64decode(encoded)
@@ -178,14 +155,13 @@ def main() -> None:
         print(f"icon {name}: Git blob {meta['blob']} verified")
 
     def local_fetch(path: str) -> bytes:
-        try:
-            return sources[path]
-        except KeyError as exc:
-            raise RuntimeError(f"unpinned production source requested: {path}") from exc
+        if path not in sources:
+            raise RuntimeError(f"unpinned production source requested: {path}")
+        return sources[path]
 
     base.fetch = local_fetch
     base.main()
-    print("Production resource build used byte-identical DGN_01 compiled fonts and pinned status/battery icon payloads; no private-repo network access was required.")
+    print("Production resources verified against DGN_01 compiled fonts and exact status/battery icon blobs.")
 
 
 if __name__ == "__main__":
