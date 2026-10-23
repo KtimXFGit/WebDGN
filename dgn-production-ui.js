@@ -28,9 +28,6 @@ function drawHeader(f, s) {
   const mm = String(now.getMinutes()).padStart(2, '0');
   f.text(3, 4, '14', `${hh}:${mm}`, PAL.white);
 
-  /* Match the current DGN_01 header implementation: cellular is drawn as
-   * four signal bars, BT uses the external 16x16 A4 resource, GPS/sound use
-   * compiled-in A1 masks, and battery uses the external 30x14 A1 states. */
   const icons = RES()?.icons || {};
   if (s.cellular) drawCellularBars(f);
   if (s.bluetooth) {
@@ -57,30 +54,44 @@ function drawNav(f, s) {
 
 function formatDose(v) { if (v < 1) return v.toFixed(3); if (v < 100) return v.toFixed(2); return v.toFixed(1); }
 
+function drawLeftTriangle(f, tipX, centerY, color) {
+  const baseX = tipX + 7;
+  for (let dy = -3; dy <= 3; dy++) {
+    const start = tipX + Math.abs(dy);
+    f.hline(start, centerY + dy, baseX - start + 1, color);
+  }
+}
+
 function drawLogScale(f, s, r) {
   card(f, r);
-  f.textCenter(r.x, r.w, r.y + 5, '14', 'LOG', PAL.muted);
-  f.textCenter(r.x, r.w, r.y + 22, '14', '10k', PAL.muted);
-  f.textCenter(r.x, r.w, r.y + 126, '14', '.01', PAL.muted);
+  f.textCenter(r.x, r.w, r.y + 4, '14', 'LOG', PAL.muted);
 
-  const dose = Math.max(0.01, Number(s.dose || 0));
-  const normalized = clamp((Math.log10(dose) + 2) / 6, 0, 1); /* 0.01 .. 10000 uSv/h */
-  const segments = 8;
-  const active = Math.max(1, Math.ceil(normalized * segments));
-  const bx = r.x + 11, by = r.y + 42, bw = 12, bh = 9, gap = 3;
-  for (let i = 0; i < segments; i++) {
-    const y = by + (segments - 1 - i) * (bh + gap);
-    f.roundRect(bx, y, bw, bh, 1, i < active ? PAL.cyan : PAL.off, null, 0);
+  const axisX = r.x + 11;
+  const top = r.y + 29;
+  const bottom = r.y + r.h - 13;
+  const axisH = bottom - top;
+  f.vline(axisX, top, axisH + 1, PAL.muted);
+
+  const major = [
+    {e:4,t:'10k'}, {e:3,t:'1k'}, {e:2,t:'100'}, {e:1,t:'10'},
+    {e:0,t:'1'}, {e:-1,t:'.1'}, {e:-2,t:'.01'}
+  ];
+  for (const item of major) {
+    const normalized = (item.e + 2) / 6;
+    const y = bottom - Math.round(normalized * axisH);
+    f.hline(axisX - 4, y, 9, PAL.muted);
+    f.text(axisX + 9, y - 7, '14', item.t, PAL.muted);
+  }
+  for (let e = -2; e < 4; e++) {
+    const normalized = (e + 2.5) / 6;
+    const y = bottom - Math.round(normalized * axisH);
+    f.hline(axisX - 2, y, 5, PAL.grid);
   }
 
-  const rangeH = segments * bh + (segments - 1) * gap;
-  const markerY = by + rangeH - Math.round(normalized * rangeH);
-  const mx = r.x + 27;
-  f.hline(mx, markerY - 2, 2, PAL.blue);
-  f.hline(mx, markerY - 1, 4, PAL.blue);
-  f.hline(mx, markerY, 6, PAL.blue);
-  f.hline(mx, markerY + 1, 4, PAL.blue);
-  f.hline(mx, markerY + 2, 2, PAL.blue);
+  const dose = clamp(Math.max(0.01, Number(s.dose || 0)), 0.01, 10000);
+  const normalized = clamp((Math.log10(dose) + 2) / 6, 0, 1);
+  const markerY = bottom - Math.round(normalized * axisH);
+  drawLeftTriangle(f, axisX + 1, markerY, PAL.blue);
 }
 
 function drawHome(f, s) {
@@ -102,14 +113,17 @@ function drawHome(f, s) {
   f.textRight(primary.x + primary.w - 8, primary.y + 7, '14', s.probe === 'normal' ? tx(s, '外部', 'External') : tx(s, '内部', 'Internal'), PAL.blue);
   const val = formatDose(Number(s.dose || 0));
   const maxWidth = primary.w - 16;
-  const fontKey = f.textWidth('46', val) <= maxWidth ? '46' : '16';
-  f.textCenter(primary.x + 8, maxWidth, primary.y + (fontKey === '46' ? 48 : 65), fontKey, val, PAL.cyan);
-  f.textRight(primary.x + primary.w - 8, primary.y + 120, '14', 'uSv/h', PAL.text);
+  const scale = SPEC.typography?.primaryScale || 1.18;
+  if (f.textWidthScaled('46', val, scale) <= maxWidth) {
+    f.textCenterScaled(primary.x + 8, maxWidth, primary.y + 54, '46', val, PAL.cyan, scale);
+  } else {
+    f.textCenter(primary.x + 8, maxWidth, primary.y + 70, '16', val, PAL.cyan);
+  }
+  f.textRight(primary.x + primary.w - 8, primary.y + 141, '14', 'uSv/h', PAL.text);
 
   card(f, total);
-  f.text(total.x + 7, total.y + 5, '14', tx(s, '累计剂量', 'TOTAL'), PAL.muted);
-  f.text(total.x + 7, total.y + 25, '14', `${Number(s.total || 0).toFixed(3)} uSv`, PAL.text);
-  f.text(total.x + 7, total.y + 47, '14', '00:12:36', PAL.muted);
+  f.text(total.x + 10, total.y + 15, '14', tx(s, '累计剂量', 'TOTAL'), PAL.muted);
+  f.textRight(total.x + total.w - 10, total.y + 13, '16', `${Number(s.total || 0).toFixed(3)} uSv`, PAL.text);
 }
 
 function drawTrend(f, s) {
