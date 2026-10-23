@@ -6,5 +6,7 @@ assert.ok(S.home.primary.h>S.home.total.h,'primary dose card should be enlarged'
 assert.ok(S.home.logScale.x<S.home.primary.x,'logarithmic range card must stay left of primary dose card');
 assert.equal(S.home.count,undefined,'home count-rate card must stay removed');
 assert.equal(S.home.total.w,228,'cumulative-dose card must span the content width');
+assert.equal(S.home.total.h,48,'cumulative-dose card must remain a compact 48px single-row bar');
+assert.ok(S.typography.primaryScale>1,'primary dose preview must enlarge the compiled 46px glyphs');
 assert.equal(S.display.navHeight,26,'bottom navigation must use compact 26px height');
 assert.equal(S.source.commit.length,40);console.log("WebDGN spec OK");
