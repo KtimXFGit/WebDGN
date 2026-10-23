@@ -7,4 +7,11 @@ for(const token of ['Uint16Array','LV_COLOR_16_SWAP','lvColorMix16','createRleRe
 }
 assert.ok(!src.includes('fillText('),'Production renderer must not use browser text rasterization');
 assert.ok(!src.includes('new Uint8ClampedArray(W*H*4)'), 'RGBA must not be the working framebuffer');
+
+const app=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8');
+assert.ok(app.includes('DGNProductionUI.render(state,canvas)'), 'app must call Production renderer as render(state, canvas)');
+assert.ok(!app.includes('DGNProductionUI.render(canvas,state'), 'legacy canvas/state call order must not return');
+assert.ok(app.includes("resources.fonts?.['14']?.glyphCount"), 'app must read current compiled-resource schema');
+assert.ok(!app.includes('source.lvFontConv'), 'legacy regenerated-font metadata must not return');
+
 console.log('Production renderer static checks OK');
