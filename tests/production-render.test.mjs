@@ -1,7 +1,10 @@
 import fs from 'node:fs';
-const renderer=fs.readFileSync(new URL('../dgn-production-ui.js',import.meta.url),'utf8');
-const builder=fs.readFileSync(new URL('../tools/build-production-resources.py',import.meta.url),'utf8');
-if(renderer.includes('fillText('))throw new Error('Production renderer must not use browser text rasterization');
-for(const token of ['glyph(', 'textWidth(', 'RGB565','DGNProductionResources'])if(!renderer.includes(token))throw new Error(`renderer missing ${token}`);
-for(const token of ['lv_font_conv','763146584CF0710223441356B4395E279021B0806C196614377A7A0174AE074A','421F26B23E2BE6B98373D32ACD3CB2897B154D4BF0A77D26534CE476E4CBED53','decompress(','battery_masks'])if(!builder.includes(token))throw new Error(`resource builder missing ${token}`);
-console.log('production render chain checks passed');
+import assert from 'node:assert/strict';
+const files=['../dgn-framebuffer-codec.js','../dgn-framebuffer-core.js','../dgn-production-ui.js'];
+const src=files.map(f=>fs.readFileSync(new URL(f,import.meta.url),'utf8')).join('\n');
+for(const token of ['Uint16Array','LV_COLOR_16_SWAP','lvColorMix16','createRleReader','decodeGlyph','LVGL_RGB565_SWAP16','putImageData','DGNProductionResources']) {
+  assert.ok(src.includes(token),`missing production framebuffer token: ${token}`);
+}
+assert.ok(!src.includes('fillText('),'Production renderer must not use browser text rasterization');
+assert.ok(!src.includes('new Uint8ClampedArray(W*H*4)'), 'RGBA must not be the working framebuffer');
+console.log('Production renderer static checks OK');

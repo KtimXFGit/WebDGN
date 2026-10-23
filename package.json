@@ -1,11 +1,11 @@
 {
-  "name":"webdgn",
-  "private":true,
-  "type":"module",
-  "scripts":{
-    "build:resources":"python tools/build-production-resources.py",
-    "export:lvgl":"node tools/export-lvgl-layout.mjs",
-    "test":"node tests/spec.test.mjs && node tests/production-render.test.mjs"
-  },
-  "devDependencies":{"lv_font_conv":"1.5.3"}
+  "name": "webdgn",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node ./tests/spec.test.mjs && node ./tests/production-render.test.mjs && node ./tests/framebuffer.test.mjs",
+    "export:lvgl": "node ./tools/export-lvgl-layout.mjs",
+    "build:resources": "python3 ./tools/build-production-resources.py"
+  }
 }

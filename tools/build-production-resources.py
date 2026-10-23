@@ -1,326 +1,202 @@
 #!/usr/bin/env python3
-"""Build WebDGN font/icon resources from the exact DGN_01 production inputs.
+"""Build WebDGN production resources from DGN_01's *compiled LVGL C assets*.
 
-The pipeline reproduces DGN_01's three linked LVGL fonts with lv_font_conv 1.5.3,
-verifies the pinned source font hashes, decodes LVGL's 4-bpp lossless RLE using
-the same algorithm as lv_font_fmt_txt.c, and emits compact browser resources.
+No font regeneration is performed here.  The authoritative inputs are the
+three ui_font_*.c files already committed to the pinned DGN_01 revision.
+Glyph payloads are copied byte-for-byte (compressed or raw) so the browser can
+run the same LVGL RLE/prefilter decoder as the target.
 """
 from __future__ import annotations
 
-import argparse
 import base64
 import hashlib
 import json
 import re
-import shutil
-import subprocess
-import tempfile
 import urllib.request
 from pathlib import Path
 
-from fontTools.ttLib import TTFont
-from fontTools.varLib.instancer import instantiateVariableFont
+SOURCE_REPO = "KtimXFGit/DGN_01"
+SOURCE_SHA = "291d4fb201a647f128c02f9e916b057a266e600a"
+RAW_ROOT = f"https://raw.githubusercontent.com/{SOURCE_REPO}/{SOURCE_SHA}/"
+OUT = Path(__file__).resolve().parents[1] / "ui-resource" / "dgn-production-resources.js"
 
-ROOT = Path(__file__).resolve().parents[1]
-CONFIG = ROOT / "ui_font_charsets.json"
-OUT = ROOT / "ui-resource" / "dgn-production-resources.js"
-CACHE = ROOT / ".cache" / "fonts"
-DGN_COMMIT = "291d4fb201a647f128c02f9e916b057a266e600a"
-LV_FONT_CONV_VERSION = "1.5.3"
+FONT_SOURCES = {
+    "14": {
+        "path": "1_Application/User/UI/Fonts/ui_font_dgn_14.c",
+        "blob": "3b52e56f6d120f83c078566b3074d9d3293f46b9",
+    },
+    "16": {
+        "path": "1_Application/User/UI/Fonts/ui_font_dgn_16.c",
+        "blob": "0b952f3eb74de851c9da75911cf4dc7aa75a55b3",
+    },
+    "46": {
+        "path": "1_Application/User/UI/Fonts/ui_font_dose_46.c",
+        "blob": "ac5a5bd836927007530611ea294d54ff67a086c9",
+    },
+}
 
-NOTO_URL = "https://raw.githubusercontent.com/Auuueser/LC-Chinese-Project/e9ce4920627389fc772837acf2d220a034bc0e98/fonts/NotoSansSC-VF.ttf"
-NOTO_SHA256 = "763146584CF0710223441356B4395E279021B0806C196614377A7A0174AE074A"
-MONTSERRAT_URL = "https://raw.githubusercontent.com/lvgl/lvgl/v8.3.11/scripts/built_in_font/Montserrat-Medium.ttf"
-MONTSERRAT_SHA256 = "421F26B23E2BE6B98373D32ACD3CB2897B154D4BF0A77D26534CE476E4CBED53"
-
-
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest().upper()
-
-
-def fetch(url: str, dest: Path, expected: str) -> Path:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists() and sha256(dest) == expected:
-        return dest
-    with urllib.request.urlopen(url, timeout=120) as response:
-        dest.write_bytes(response.read())
-    digest = sha256(dest)
-    if digest != expected:
-        dest.unlink(missing_ok=True)
-        raise SystemExit(f"source font hash mismatch for {url}: {digest}")
-    return dest
+ASSET_SOURCE = "1_Application/User/UI/ui_assets.c"
 
 
-def converter_path() -> Path:
-    candidates = [
-        ROOT / "node_modules" / ".bin" / "lv_font_conv",
-        ROOT / "node_modules" / ".bin" / "lv_font_conv.cmd",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    found = shutil.which("lv_font_conv")
-    if found:
-        return Path(found)
-    raise SystemExit("lv_font_conv 1.5.3 not installed; run npm install")
+def fetch(path: str) -> bytes:
+    req = urllib.request.Request(RAW_ROOT + path, headers={"User-Agent": "WebDGN-resource-builder"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
 
 
-def generate_font(font: Path, size: int, symbols: str, name: str,
-                  out_dir: Path, include_ascii: bool) -> Path:
-    command = [str(converter_path()), "--size", str(size), "--bpp", "4",
-               "--format", "lvgl", "--font", str(font)]
-    if include_ascii:
-        command.extend(["--range", "0x20-0x7E"])
-    command.extend(["--symbols", symbols, "--no-kerning",
-                    "--lv-include", "lvgl.h", "--lv-font-name", name,
-                    "-o", str(out_dir / f"{name}.c")])
-    subprocess.run(command, check=True)
-    return out_dir / f"{name}.c"
+def git_blob_sha(data: bytes) -> str:
+    head = f"blob {len(data)}\0".encode("ascii")
+    return hashlib.sha1(head + data).hexdigest()
 
 
-def get_bits(data: bytes, bit_pos: int, length: int) -> int:
-    mask = (1 << length) - 1
-    byte_pos = bit_pos >> 3
-    offset = bit_pos & 7
-    if offset + length >= 8:
-        a = data[byte_pos] if byte_pos < len(data) else 0
-        b = data[byte_pos + 1] if byte_pos + 1 < len(data) else 0
-        value = (a << 8) | b
-        return (value >> (16 - offset - length)) & mask
-    a = data[byte_pos] if byte_pos < len(data) else 0
-    return (a >> (8 - offset - length)) & mask
+def require_blob(data: bytes, expected: str, path: str) -> None:
+    actual = git_blob_sha(data)
+    if actual != expected:
+        raise RuntimeError(f"{path}: Git blob SHA mismatch: {actual} != {expected}")
 
 
-class RLE:
-    SINGLE = 0
-    REPEAT = 1
-    COUNTER = 2
-
-    def __init__(self, data: bytes, bpp: int):
-        self.data = data
-        self.bpp = bpp
-        self.state = self.SINGLE
-        self.rdp = 0
-        self.prev = 0
-        self.count = 0
-
-    def next(self) -> int:
-        ret = 0
-        if self.state == self.SINGLE:
-            ret = get_bits(self.data, self.rdp, self.bpp)
-            if self.rdp != 0 and self.prev == ret:
-                self.count = 0
-                self.state = self.REPEAT
-            self.prev = ret
-            self.rdp += self.bpp
-        elif self.state == self.REPEAT:
-            v = get_bits(self.data, self.rdp, 1)
-            self.count += 1
-            self.rdp += 1
-            if v == 1:
-                ret = self.prev
-                if self.count == 11:
-                    self.count = get_bits(self.data, self.rdp, 6)
-                    self.rdp += 6
-                    if self.count != 0:
-                        self.state = self.COUNTER
-                    else:
-                        ret = get_bits(self.data, self.rdp, self.bpp)
-                        self.prev = ret
-                        self.rdp += self.bpp
-                        self.state = self.SINGLE
-            else:
-                ret = get_bits(self.data, self.rdp, self.bpp)
-                self.prev = ret
-                self.rdp += self.bpp
-                self.state = self.SINGLE
-        else:
-            ret = self.prev
-            self.count -= 1
-            if self.count == 0:
-                ret = get_bits(self.data, self.rdp, self.bpp)
-                self.prev = ret
-                self.rdp += self.bpp
-                self.state = self.SINGLE
-        return ret
+def parse_ints(body: str) -> list[int]:
+    return [int(x, 0) for x in re.findall(r"(?<![\w.])-?0x[0-9A-Fa-f]+|(?<![\w.])-?\d+", body)]
 
 
-def decompress(data: bytes, width: int, height: int, bpp: int = 4,
-               prefilter: bool = True) -> list[int]:
-    rle = RLE(data, bpp)
-    rows: list[list[int]] = []
-    first = [rle.next() for _ in range(width)]
-    rows.append(first)
-    prev = first
-    for _ in range(1, height):
-        current = [rle.next() for _ in range(width)]
-        if prefilter:
-            current = [a ^ b for a, b in zip(current, prev)]
-        rows.append(current)
-        prev = current
-    return [pixel for row in rows for pixel in row]
+def array_body(text: str, name: str) -> str:
+    m = re.search(rf"\b{name}\s*\[\]\s*=\s*\{{(.*?)\n\}};", text, re.S)
+    if not m:
+        raise RuntimeError(f"array not found: {name}")
+    return m.group(1)
 
 
-def pack4(values: list[int]) -> bytes:
-    result = bytearray((len(values) + 1) // 2)
-    for index, value in enumerate(values):
-        value &= 0xF
-        if index & 1:
-            result[index >> 1] |= value
-        else:
-            result[index >> 1] = value << 4
-    return bytes(result)
+def parse_font(data: bytes, source_path: str, blob_sha: str) -> dict:
+    text = data.decode("utf-8")
+    bitmap_body = array_body(text, "glyph_bitmap")
+    bitmap = bytes(parse_ints(re.sub(r"/\*.*?\*/", "", bitmap_body, flags=re.S)))
 
+    # Generated files put one U+ comment before every bitmap glyph in glyph-id order.
+    cps = [int(x, 16) for x in re.findall(r"/\*\s*U\+([0-9A-Fa-f]{4,6})\b", bitmap_body)]
 
-def parse_font(path: Path) -> dict:
-    source = path.read_text(encoding="utf-8")
-    bitmap_match = re.search(r"glyph_bitmap\[\]\s*=\s*\{(.*?)\n\};", source, re.S)
-    dsc_match = re.search(r"glyph_dsc\[\]\s*=\s*\{(.*?)\n\};", source, re.S)
-    if not bitmap_match or not dsc_match:
-        raise ValueError(f"unable to parse {path}")
+    dsc_body = array_body(text, "glyph_dsc")
+    desc_re = re.compile(
+        r"\{\s*\.bitmap_index\s*=\s*(\d+)\s*,\s*\.adv_w\s*=\s*(\d+)\s*,\s*"
+        r"\.box_w\s*=\s*(\d+)\s*,\s*\.box_h\s*=\s*(\d+)\s*,\s*"
+        r"\.ofs_x\s*=\s*(-?\d+)\s*,\s*\.ofs_y\s*=\s*(-?\d+)\s*\}", re.S)
+    desc = [tuple(map(int, m.groups())) for m in desc_re.finditer(dsc_body)]
+    if len(desc) < 2:
+        raise RuntimeError(f"{source_path}: no glyph descriptors parsed")
+    # glyph_dsc[0] is the reserved id; bitmap comments start at glyph id 1.
+    if len(cps) != len(desc) - 1:
+        raise RuntimeError(f"{source_path}: bitmap comments ({len(cps)}) != descriptors-1 ({len(desc)-1})")
 
-    blocks = []
-    pattern = re.compile(r'/\*\s*U\+([0-9A-Fa-f]+).*?\*/(.*?)(?=/\*\s*U\+|\Z)', re.S)
-    for match in pattern.finditer(bitmap_match.group(1)):
-        cp = int(match.group(1), 16)
-        payload = bytes(int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]+)", match.group(2)))
-        blocks.append((cp, payload))
+    bpp_m = re.search(r"\.bpp\s*=\s*(\d+)", text)
+    fmt_m = re.search(r"\.bitmap_format\s*=\s*([A-Za-z0-9_]+)", text)
+    line_m = re.search(r"\.line_height\s*=\s*(\d+)", text)
+    base_m = re.search(r"\.base_line\s*=\s*(-?\d+)", text)
+    if not (bpp_m and fmt_m and line_m and base_m):
+        raise RuntimeError(f"{source_path}: font metadata not found")
 
-    descriptors = []
-    dsc_re = re.compile(
-        r"\.bitmap_index\s*=\s*(-?\d+).*?\.adv_w\s*=\s*(-?\d+).*?"
-        r"\.box_w\s*=\s*(-?\d+).*?\.box_h\s*=\s*(-?\d+).*?"
-        r"\.ofs_x\s*=\s*(-?\d+).*?\.ofs_y\s*=\s*(-?\d+)", re.S)
-    for match in dsc_re.finditer(dsc_match.group(1)):
-        descriptors.append(tuple(int(v) for v in match.groups()))
-    if not descriptors or len(descriptors) - 1 != len(blocks):
-        raise ValueError(f"glyph count mismatch in {path}: blocks={len(blocks)}, dsc={len(descriptors)}")
+    fmt_token = fmt_m.group(1)
+    fmt = {
+        "0": 0,
+        "LV_FONT_FMT_TXT_PLAIN": 0,
+        "LV_FONT_FMT_TXT_COMPRESSED": 1,
+        "LV_FONT_FMT_TXT_COMPRESSED_NO_PREFILTER": 2,
+    }.get(fmt_token)
+    if fmt is None:
+        # Generated files sometimes emit the numeric macro expansion.
+        if fmt_token.isdigit(): fmt = int(fmt_token)
+        else: raise RuntimeError(f"{source_path}: unknown bitmap_format {fmt_token}")
 
-    line_height = int(re.search(r"\.line_height\s*=\s*(\d+)", source).group(1))
-    base_line = int(re.search(r"\.base_line\s*=\s*(-?\d+)", source).group(1))
-    bpp = int(re.search(r"\.bpp\s*=\s*(\d+)", source).group(1))
-    bitmap_format = int(re.search(r"\.bitmap_format\s*=\s*(\d+)", source).group(1))
-    glyphs = {}
-    for index, (cp, payload) in enumerate(blocks, start=1):
-        _, adv_w, box_w, box_h, ofs_x, ofs_y = descriptors[index]
-        if box_w and box_h:
-            pixels = decompress(payload, box_w, box_h, bpp, bitmap_format == 1)
-            packed = base64.b64encode(pack4(pixels)).decode("ascii")
-        else:
-            packed = ""
+    glyphs: dict[str, list] = {}
+    for i, cp in enumerate(cps, start=1):
+        bitmap_index, adv_w, w, h, ox, oy = desc[i]
+        next_index = desc[i + 1][0] if i + 1 < len(desc) else len(bitmap)
+        payload = bitmap[bitmap_index:next_index]
+        # LVGL adv_w is 1/16 px in generated format. UI positions are integer px.
+        adv_px = (adv_w + 8) >> 4
         glyphs[str(cp)] = [
-            (adv_w + 8) >> 4, box_w, box_h, ofs_x, ofs_y, packed
+            adv_px, w, h, ox, oy,
+            base64.b64encode(payload).decode("ascii"),
         ]
-    return {"lineHeight": line_height, "baseLine": base_line, "bpp": bpp,
-            "glyphs": glyphs}
 
-
-def one_bit_icon(width: int, height: int, data: bytes) -> dict:
-    return {"w": width, "h": height, "bpp": 1,
-            "data": base64.b64encode(data).decode("ascii")}
-
-
-def builtin_icons() -> dict:
-    gps = bytes([
-        0x00,0x00,0x07,0xC0,0x0F,0xE0,0x1F,0xF0,0x1C,0x70,0x18,0x30,0x18,0x30,0x1C,0x70,
-        0x1F,0xF0,0x0F,0xE0,0x0F,0xE0,0x07,0xC0,0x03,0x80,0x03,0x80,0x01,0x00,0x00,0x00])
-    sound_on = bytes([
-        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x80,0x01,0x90,0x07,0xA8,0x7F,0xA4,0x7F,0x94,
-        0x7F,0x94,0x7F,0x94,0x7F,0xA4,0x07,0xA8,0x01,0x90,0x00,0x80,0x00,0x00,0x00,0x00])
-    sound_off = bytes([
-        0x00,0x00,0x20,0x00,0x10,0x00,0x08,0x80,0x04,0x80,0x02,0x00,0x79,0x00,0x7C,0x80,
-        0x7E,0x40,0x7F,0x20,0x7F,0x90,0x07,0x88,0x01,0x84,0x00,0x82,0x00,0x00,0x00,0x00])
-    # Exact 16x16 alpha-4 external icon payloads from DGN_01 resource bank.
-    # The first four bytes of each .bin are the LVGL image header and are omitted here.
-    status_bt_file = base64.b64decode("DUAAAgAAAADwAAAAAAAAD/8AAAAAAAD///AAAAAAD////wAAAAD///D/8AAAAA8P8A//AAAA//////AAAAAP////AAAAAAAP/wAAAAAAAP//8AAAAAD/////8AAAD///////AAAA8A/w//AAAAAAD///AAAAAAAP//AAAAAAAA//AAAA")
-    status_4g_file = base64.b64decode("DUAAAgAAAAAAAAAAAAAAAAAAAAAABPAGzLIAAAAc4EsAewAAAJXgswAaAAAEoODQAAAAAAwg4OAHvQAAXbv6swAfAAAAAOBbAH4AAAAA4AjbbgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
     return {
-        "gps": one_bit_icon(16, 16, gps),
-        "soundOn": one_bit_icon(16, 16, sound_on),
-        "soundOff": one_bit_icon(16, 16, sound_off),
-        "statusBt": {"w": 16, "h": 16, "bpp": 4, "data": base64.b64encode(status_bt_file[4:]).decode("ascii")},
-        "status4g": {"w": 16, "h": 16, "bpp": 4, "data": base64.b64encode(status_4g_file[4:]).decode("ascii")},
+        "lineHeight": int(line_m.group(1)),
+        "baseLine": int(base_m.group(1)),
+        "bpp": int(bpp_m.group(1)),
+        "bitmapFormat": fmt,
+        "payloadEncoding": "native-lvgl-glyph-bytes",
+        "sourcePath": source_path,
+        "gitBlobSha": blob_sha,
+        "glyphCount": len(glyphs),
+        "glyphs": glyphs,
     }
 
 
-def battery_masks() -> list[set[tuple[int, int]]]:
-    width, height = 30, 14
-    frame = {(x, y) for y in range(height) for x in range(28)
-             if x in (0, 27) or y in (0, 13)}
-    frame -= {(0, 0), (27, 0), (0, 13), (27, 13)}
-    frame |= {(x, y) for x in (28, 29) for y in range(4, 10)}
-    result = []
-    for count in range(5):
-        fill = {(x, y) for i in range(count) for x in range(2 + i * 6, 7 + i * 6)
-                for y in range(2, 12)}
-        result.append(frame | fill)
-    bolt = ["00001100", "00011100", "00111000", "01110000", "11111111",
-            "00011110", "00011100", "00111000", "00110000", "01100000"]
-    result.append(frame | {(10 + x, 2 + y) for y, row in enumerate(bolt)
-                           for x, pixel in enumerate(row) if pixel == "1"})
+def extract_builtin_icons(text: str) -> dict:
+    """Parse the exact 1bpp built-in masks from DGN_01 ui_assets.c.
+
+    At SOURCE_SHA only GPS and SOUND have compiled-in image fallbacks. 4G,
+    Bluetooth and battery fall back to LVGL text labels when the external
+    resource bank is unavailable, so WebDGN must not invent replacement icons.
+    """
+    aliases = {
+        "gps": ("UI_GPS_BITMAP", 16, 16),
+        "soundOn": ("UI_SOUND_BITMAP", 16, 16),
+    }
+    result = {}
+    for out_name, (c_name, w, h) in aliases.items():
+        m = re.search(rf"\b{re.escape(c_name)}\s*\[.*?\]\s*=\s*\{{(.*?)\}};", text, re.S)
+        if not m:
+            raise RuntimeError(f"{ASSET_SOURCE}: built-in icon not found: {c_name}")
+        raw = bytes(parse_ints(re.sub(r"/\*.*?\*/", "", m.group(1), flags=re.S)))
+        expected = ((w + 7) // 8) * h
+        if len(raw) != expected:
+            raise RuntimeError(f"{ASSET_SOURCE}: {c_name} size {len(raw)} != {expected}")
+        result[out_name] = {
+            "w": w,
+            "h": h,
+            "bpp": 1,
+            "data": base64.b64encode(raw).decode("ascii"),
+            "origin": f"{ASSET_SOURCE}@{SOURCE_SHA}",
+        }
+    # ui_assets.c uses the same compiled-in speaker mask for the sound state;
+    # state/color controls the presentation when the external icon is absent.
+    result["soundOff"] = dict(result["soundOn"])
     return result
 
 
-def battery_icons() -> list[dict]:
-    icons = []
-    for pixels in battery_masks():
-        data = bytearray(4 * 14)
-        for x, y in pixels:
-            data[y * 4 + x // 8] |= 1 << (7 - x % 8)
-        icons.append(one_bit_icon(30, 14, bytes(data)))
-    return icons
+def main() -> None:
+    fonts = {}
+    for key, meta in FONT_SOURCES.items():
+        raw = fetch(meta["path"])
+        require_blob(raw, meta["blob"], meta["path"])
+        fonts[key] = parse_font(raw, meta["path"], meta["blob"])
 
+    asset_raw = fetch(ASSET_SOURCE)
+    asset_text = asset_raw.decode("utf-8")
+    icons = extract_builtin_icons(asset_text)
 
-def build(output: Path) -> None:
-    config = json.loads(CONFIG.read_text(encoding="utf-8"))
-    CACHE.mkdir(parents=True, exist_ok=True)
-    noto = fetch(NOTO_URL, CACHE / "NotoSansSC-VF.ttf", NOTO_SHA256)
-    montserrat = fetch(MONTSERRAT_URL, CACHE / "Montserrat-Medium.ttf", MONTSERRAT_SHA256)
-
-    with tempfile.TemporaryDirectory() as temp_name:
-        temp = Path(temp_name)
-        variable = TTFont(noto)
-        static = instantiateVariableFont(variable, {"wght": config["weight"]}, inplace=False)
-        static["OS/2"].usWeightClass = config["weight"]
-        static_path = temp / "NotoSansSC-Medium-500.ttf"
-        static.save(static_path)
-        verify = TTFont(static_path)
-        if verify["OS/2"].usWeightClass != 500 or "fvar" in verify:
-            raise SystemExit("failed to freeze Noto Sans SC at weight 500")
-
-        paths = {
-            "14": generate_font(static_path, 14, config["14"], "ui_font_dgn_14", temp, True),
-            "16": generate_font(static_path, 16, config["16"], "ui_font_dgn_16", temp, True),
-            "46": generate_font(montserrat, 46, "0123456789.-", "ui_font_dose_46", temp, False),
-        }
-        fonts = {key: parse_font(path) for key, path in paths.items()}
-
-    resources = {
-        "source": {
-            "dgnCommit": DGN_COMMIT,
-            "lvFontConv": LV_FONT_CONV_VERSION,
-            "notoSha256": NOTO_SHA256,
-            "montserratSha256": MONTSERRAT_SHA256,
-            "weight": 500,
-            "bpp": 4,
+    payload = {
+        "schema": 2,
+        "sourceRepo": SOURCE_REPO,
+        "sourceCommit": SOURCE_SHA,
+        "generator": "exact-compiled-lvgl-c-assets; browser decodes native LVGL glyph payload",
+        "framebufferContract": {"colorDepth":16,"color16Swap":1,"glyphOpacity":"4bpp x 17"},
+        "externalIconBank": {
+            "availableInGit": False,
+            "behavior": "use ui_assets.c compiled-in/text fallbacks; do not synthesize icons",
         },
         "fonts": fonts,
-        "icons": {**builtin_icons(), "battery": battery_icons()},
+        "icons": icons,
     }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(resources, ensure_ascii=False, separators=(",", ":"))
-    output.write_text("window.DGNProductionResources=" + payload + ";\n", encoding="utf-8")
-    print(f"generated {output} ({output.stat().st_size} bytes)")
-    print("glyphs:", ", ".join(f"{k}={len(v['glyphs'])}" for k, v in fonts.items()))
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=OUT)
-    args = parser.parse_args()
-    build(args.output)
-    return 0
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(
+        "/* Generated. Do not hand-edit. Source is pinned DGN_01 compiled UI assets. */\n"
+        "window.DGNProductionResources = " + json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + ";\n",
+        encoding="utf-8",
+    )
+    print(f"Wrote {OUT}")
+    for k,f in fonts.items():
+        print(f"font {k}: {f['glyphCount']} glyphs, bitmapFormat={f['bitmapFormat']}, blob={f['gitBlobSha']}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

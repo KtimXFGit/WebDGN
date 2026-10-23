@@ -22,14 +22,17 @@
   <label>电量 <output id="batteryOut"></output><input id="battery" type="range" min="0" max="100" value="82"></label>
   <div class="toggles"><label><input id="cellular" type="checkbox" checked>4G</label><label><input id="bluetooth" type="checkbox" checked>蓝牙</label><label><input id="gps" type="checkbox" checked>GPS</label><label><input id="sound" type="checkbox" checked>声音</label></div>
   <hr>
-  <h2>Production 同源链</h2>
-  <p>14/16 px 中文与 46 px 主读数字体由与 DGN_01 相同的字体源、字重、字符集和 <code>lv_font_conv 1.5.3</code> 在部署时重新生成，再按 LVGL RLE 算法解码成 Web 4bpp glyph。</p>
-  <p>网页文本不调用 <code>fillText()</code>；状态/电池图标使用 DGN_01 的位图定义。布局继续由 <code>dgn-ui-spec.js</code> 单源维护，并可导出 LVGL C 宏。</p>
+  <h2>Production 真机 framebuffer 链</h2>
+  <p>14/16 px 中文与 46 px 主读数字体直接读取 DGN_01 当前提交中已经参与固件构建的 <code>ui_font_*.c</code>，保留原始 LVGL 压缩 payload，并在浏览器执行同构 RLE/prefilter 解码。</p>
+  <p>工作 framebuffer 为 <code>Uint16Array(240×320)</code>，按 <code>LV_COLOR_DEPTH=16</code>、<code>LV_COLOR_16_SWAP=1</code> 和 LVGL 16-bit 混色路径生成；Canvas 只负责最终 RGB565→RGBA 显示，不参与字体栅格化或工作混色。</p>
+  <p>外部 Flash 状态图标资源未进入 Git 时严格走 DGN 源码 fallback，不生成“相似图标”。布局继续由 <code>dgn-ui-spec.js</code> 单源维护并可导出 LVGL C 宏。</p>
   <button id="copySpec">复制当前布局 JSON</button>
   <pre id="stateDump"></pre>
 </aside>
 </main>
 <script src="ui-resource/dgn-production-resources.js"></script>
+<script src="dgn-framebuffer-codec.js"></script>
+<script src="dgn-framebuffer-core.js"></script>
 <script src="dgn-production-ui.js"></script>
 <script type="module" src="app.js"></script>
 </body></html>
