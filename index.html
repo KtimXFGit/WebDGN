@@ -2,18 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WebDGN · DGN_01 UI 模拟器</title>
+<title>WebDGN · DGN_01 Production UI 模拟器</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="site-head"><div><b>WebDGN</b><span>DGN_01 UI / 功能模拟器</span></div><code id="baseline"></code></header>
+<header class="site-head"><div><b>WebDGN</b><span>DGN_01 Production 同源 UI / 功能模拟器</span></div><code id="baseline"></code></header>
 <main>
 <section class="sim-wrap">
-  <div class="device"><div id="lcd" class="lcd" tabindex="0" aria-label="DGN_01 240x320 display"></div></div>
-  <div class="keys">
-    <button data-key="left">◀ 上/左</button><button data-key="ok">确认</button><button data-key="right">下/右 ▶</button>
-  </div>
-  <p class="hint">键盘：←/→ 切页，↑/↓ 选择，Enter 确认，Esc 返回。屏幕按 240×320 逻辑像素渲染。</p>
+  <div class="device"><canvas id="lcd" class="lcd" width="240" height="320" tabindex="0" aria-label="DGN_01 240x320 production display"></canvas></div>
+  <div class="render-meta"><span>渲染：<b id="renderMode">检测中</b></span><code id="resourceInfo"></code></div>
+  <div class="keys"><button data-key="left">◀ 上/左</button><button data-key="ok">确认</button><button data-key="right">下/右 ▶</button></div>
+  <p class="hint">键盘：←/→ 切页，↑/↓ 选择，Enter 确认，Esc 返回。Canvas 固定为真机 240×320 逻辑像素，关闭平滑缩放。</p>
 </section>
 <aside class="panel">
   <h2>运行状态模拟</h2>
@@ -23,11 +22,14 @@
   <label>电量 <output id="batteryOut"></output><input id="battery" type="range" min="0" max="100" value="82"></label>
   <div class="toggles"><label><input id="cellular" type="checkbox" checked>4G</label><label><input id="bluetooth" type="checkbox" checked>蓝牙</label><label><input id="gps" type="checkbox" checked>GPS</label><label><input id="sound" type="checkbox" checked>声音</label></div>
   <hr>
-  <h2>迁移辅助</h2>
-  <p>所有坐标、颜色和页面骨架集中于 <code>dgn-ui-spec.js</code>。线上调整后可执行导出脚本生成 LVGL C 宏。</p>
+  <h2>Production 同源链</h2>
+  <p>14/16 px 中文与 46 px 主读数字体由与 DGN_01 相同的字体源、字重、字符集和 <code>lv_font_conv 1.5.3</code> 在部署时重新生成，再按 LVGL RLE 算法解码成 Web 4bpp glyph。</p>
+  <p>网页文本不调用 <code>fillText()</code>；状态/电池图标使用 DGN_01 的位图定义。布局继续由 <code>dgn-ui-spec.js</code> 单源维护，并可导出 LVGL C 宏。</p>
   <button id="copySpec">复制当前布局 JSON</button>
   <pre id="stateDump"></pre>
 </aside>
 </main>
+<script src="ui-resource/dgn-production-resources.js"></script>
+<script src="dgn-production-ui.js"></script>
 <script type="module" src="app.js"></script>
 </body></html>
