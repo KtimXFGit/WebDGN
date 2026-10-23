@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Rebuild the pinned DGN_01 compiled fonts without cross-repo credentials.
 
-The public font inputs and tool versions are pinned. After generation we replace
-only lv_font_conv's informational header with the exact DGN_01 production header
-and require the resulting Git blob SHA to equal the blob already committed in
-DGN_01. Only byte-identical C files are handed to build-production-resources.py.
+This mirrors DGN_01/3_PCTool/DGN01_Tool/build_lvgl_fonts.py. Public font inputs
+and tool versions are pinned; generated C files must have the same Git blob SHA
+as the compiled font sources committed in the pinned DGN_01 revision.
 """
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
-import re
 import shutil
 import subprocess
 import tempfile
@@ -66,25 +64,14 @@ def converter() -> Path:
     raise RuntimeError(f"lv_font_conv {LV_FONT_CONV_VERSION} is not installed")
 
 
-def production_header(size: int, name: str, symbols: str, noto: bool) -> str:
+def production_font_ref(name: str, noto: bool) -> str:
     if noto:
-        source = f"{NOTO_SHA256}; weight: 500; bpp: 4; lossless RLE"
-        font = r"<PROJECT>\3_PCTool\DGN01_Tool\font_build\NotoSansSC-Medium-500.ttf"
-        selection = f"--range 0x20-0x7E --symbols {symbols}"
-    else:
-        source = f"{MONTSERRAT_SHA256}; Montserrat Medium; bpp: 4"
-        font = r"<PROJECT>\1_Application\LVGL\scripts\built_in_font\Montserrat-Medium.ttf"
-        selection = f"--symbols {symbols}"
-    out = rf"<PROJECT>\1_Application\User\UI\Fonts\{name}.c"
-    opts = f"--size {size} --bpp 4 --format lvgl --font {font} {selection} --no-kerning --lv-include lvgl.h --lv-font-name {name} -o {out}"
-    return (
-        "/*******************************************************************************\n"
-        f" * Size: {size} px\n"
-        " * Bpp: 4\n"
-        f" * Source SHA-256: {source}\n"
-        f" * Opts: {opts}\n"
-        " ******************************************************************************/"
-    )
+        return r"<PROJECT>\3_PCTool\DGN01_Tool\font_build\NotoSansSC-Medium-500.ttf"
+    return r"<PROJECT>\1_Application\LVGL\scripts\built_in_font\Montserrat-Medium.ttf"
+
+
+def production_output_ref(name: str) -> str:
+    return rf"<PROJECT>\1_Application\User\UI\Fonts\{name}.c"
 
 
 def generate(font: Path, size: int, symbols: str, name: str, output: Path, ascii_range: bool) -> bytes:
@@ -93,12 +80,21 @@ def generate(font: Path, size: int, symbols: str, name: str, output: Path, ascii
         cmd += ["--range", "0x20-0x7E"]
     cmd += ["--symbols", symbols, "--no-kerning", "--lv-include", "lvgl.h", "--lv-font-name", name, "-o", str(output)]
     subprocess.run(cmd, check=True)
-    text = output.read_text(encoding="utf-8")
-    header = production_header(size, name, symbols, ascii_range)
-    normalized, count = re.subn(r"\A/\*.*?\*/", lambda _match: header, text, count=1, flags=re.S)
-    if count != 1:
-        raise RuntimeError(f"cannot normalize lv_font_conv header: {name}")
-    output.write_text(normalized, encoding="utf-8", newline="\n")
+
+    # Mirror DGN_01 build_lvgl_fonts.py post-processing exactly. The original
+    # generator was run on Windows, so normalize the two path arguments to the
+    # same <PROJECT>\\... form before hashing the complete C file.
+    source = output.read_text(encoding="utf-8")
+    source = source.replace("    .user_data = NULL,\n", "")
+    source = source.replace(str(font), production_font_ref(name, ascii_range))
+    source = source.replace(str(output), production_output_ref(name))
+    if ascii_range:
+        metadata = f"Source SHA-256: {NOTO_SHA256}; weight: 500; bpp: 4; lossless RLE"
+    else:
+        metadata = f"Source SHA-256: {MONTSERRAT_SHA256}; Montserrat Medium"
+    metadata_line = metadata if "bpp: 4" in metadata else f"{metadata}; bpp: 4"
+    source = source.replace(" * Opts:", f" * {metadata_line}\n * Opts:", 1)
+    output.write_text(source.rstrip() + "\n", encoding="utf-8", newline="\n")
     return output.read_bytes()
 
 
@@ -123,6 +119,9 @@ def build_inputs() -> dict[str, bytes]:
         static["OS/2"].usWeightClass = int(config["weight"])
         noto_static = temp / "NotoSansSC-Medium-500.ttf"
         static.save(noto_static)
+        check = TTFont(noto_static)
+        if check["OS/2"].usWeightClass != 500 or "fvar" in check:
+            raise RuntimeError("failed to freeze Noto Sans SC at weight 500")
 
         jobs = {
             "14": (noto_static, 14, config["14"], "ui_font_dgn_14", True),
@@ -142,8 +141,8 @@ def build_inputs() -> dict[str, bytes]:
     return result
 
 
-# At the pinned DGN revision these are the exact compiled-in 16x16 A1 fallback
-# masks from ui_assets.c. 4G/BT/battery have no compiled bitmap fallback there.
+# Exact compiled-in 16x16 A1 fallback masks from ui_assets.c at SOURCE_SHA.
+# 4G/BT/battery have no compiled bitmap fallback in that source revision.
 ASSET_STUB = r'''
 static const uint8_t UI_GPS_BITMAP[] = {
 0x00,0x00,0x07,0xC0,0x0F,0xE0,0x1F,0xF0,0x1C,0x70,0x18,0x30,0x18,0x30,0x1C,0x70,
