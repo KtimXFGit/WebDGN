@@ -1,0 +1,1 @@
+{"name":"webdgn","private":true,"type":"module","scripts":{"export:lvgl":"node tools/export-lvgl-layout.mjs","test":"node tests/spec.test.mjs"}}

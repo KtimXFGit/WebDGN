@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WebDGN · DGN_01 UI 模拟器</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="site-head"><div><b>WebDGN</b><span>DGN_01 UI / 功能模拟器</span></div><code id="baseline"></code></header>
+<main>
+<section class="sim-wrap">
+  <div class="device"><div id="lcd" class="lcd" tabindex="0" aria-label="DGN_01 240x320 display"></div></div>
+  <div class="keys">
+    <button data-key="left">◀ 上/左</button><button data-key="ok">确认</button><button data-key="right">下/右 ▶</button>
+  </div>
+  <p class="hint">键盘：←/→ 切页，↑/↓ 选择，Enter 确认，Esc 返回。屏幕按 240×320 逻辑像素渲染。</p>
+</section>
+<aside class="panel">
+  <h2>运行状态模拟</h2>
+  <label>场景<select id="scenario"><option value="normal">正常本底</option><option value="alarm">剂量报警</option><option value="fault">主机故障</option><option value="probe">外接探头</option></select></label>
+  <label>语言<select id="language"><option value="zh">中文</option><option value="en">English</option></select></label>
+  <label>剂量率 <output id="doseOut"></output><input id="dose" type="range" min="0" max="500" value="12"></label>
+  <label>电量 <output id="batteryOut"></output><input id="battery" type="range" min="0" max="100" value="82"></label>
+  <div class="toggles"><label><input id="cellular" type="checkbox" checked>4G</label><label><input id="bluetooth" type="checkbox" checked>蓝牙</label><label><input id="gps" type="checkbox" checked>GPS</label><label><input id="sound" type="checkbox" checked>声音</label></div>
+  <hr>
+  <h2>迁移辅助</h2>
+  <p>所有坐标、颜色和页面骨架集中于 <code>dgn-ui-spec.js</code>。线上调整后可执行导出脚本生成 LVGL C 宏。</p>
+  <button id="copySpec">复制当前布局 JSON</button>
+  <pre id="stateDump"></pre>
+</aside>
+</main>
+<script type="module" src="app.js"></script>
+</body></html>
