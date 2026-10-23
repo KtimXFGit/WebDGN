@@ -95,7 +95,7 @@ def generate(font: Path, size: int, symbols: str, name: str, output: Path, ascii
     subprocess.run(cmd, check=True)
     text = output.read_text(encoding="utf-8")
     header = production_header(size, name, symbols, ascii_range)
-    normalized, count = re.subn(r"\A/\*.*?\*/", header, text, count=1, flags=re.S)
+    normalized, count = re.subn(r"\A/\*.*?\*/", lambda _match: header, text, count=1, flags=re.S)
     if count != 1:
         raise RuntimeError(f"cannot normalize lv_font_conv header: {name}")
     output.write_text(normalized, encoding="utf-8", newline="\n")
