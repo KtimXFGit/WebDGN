@@ -4,13 +4,12 @@ const C=window.DGNFramebufferCodec;
 if(!C) throw new Error('dgn-framebuffer-codec.js must load first');
 const {W,H,RES,hexToLv565,lvColorMix16,lv565ToRgb888,decodeGlyph,b64}=C;
 const SPEC = Object.freeze({
-  display: { contentY: 24 },
+  display: { contentY: 24, navHeight: 26 },
   home: {
     status: { x: 6, y: 4, w: 228, h: 26 },
     logScale: { x: 6, y: 36, w: 42, h: 149 },
     primary: { x: 54, y: 36, w: 180, h: 149 },
-    total: { x: 6, y: 191, w: 111, h: 67 },
-    count: { x: 123, y: 191, w: 111, h: 67 }
+    total: { x: 6, y: 197, w: 228, h: 67 }
   },
   trend: { chart: { x: 30, y: 36, w: 198, h: 138 }, range: 50 },
   nav: { labels: ['设置', '测量', '趋势'], labelsEn: ['SET', 'MEASURE', 'TREND'] }
