@@ -3,10 +3,13 @@
 
 This mirrors DGN_01/3_PCTool/DGN01_Tool/build_lvgl_fonts.py. Public font inputs
 and tool versions are pinned; generated C files must have the same Git blob SHA
-as the compiled font sources committed in the pinned DGN_01 revision.
+as the compiled font sources committed in the pinned DGN_01 revision. Small
+status/battery LVGL .bin assets are embedded byte-for-byte with their Git blob
+SHA so Pages CI does not need credentials for the private DGN_01 repository.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import json
@@ -35,6 +38,21 @@ if spec is None or spec.loader is None:
     raise SystemExit("cannot import build-production-resources.py")
 base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
+
+# Exact LVGL .bin files from DGN_01@SOURCE_SHA. These are tiny alpha-only UI
+# assets, not font files. Each payload is re-verified against the private repo's
+# pinned Git blob SHA declared in base.EXTERNAL_ICON_SOURCES before use.
+PINNED_ICON_B64 = {
+    "status4g": "DUAAAgAAAAAAAAAAAAAAAAAAAAAABPAGzLIAAAAc4EsAewAAAJXgswAaAAAEoODQAAAAAAwg4OAHvQAAXbv6swAfAAAAAOBbAH4AAAAA4AjbbgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "statusBt": "DUAAAgAAAADwAAAAAAAAD/8AAAAAAAD///AAAAAAD////wAAAAD///D/8AAAAA8P8A//AAAA//////AAAAAP////AAAAAAAP/wAAAAAAAP//8AAAAAD/////8AAAD///////AAAA8A/w//AAAAAAD///AAAAAAAP//AAAAAAAA//AAAA",
+    "statusGps": "DUAAAgAAAAAAAAAAAAAA///wAAAAAA////8AAAAA//AA//AAAA//D/8P/wAAD/D///D/AAAP8P//8P8AAA/w///w/wAAD/8P/w//AAAA//////AAAAAP////AAAAAAD///AAAAAAAPAPAAAAAAAADw8AAAAAAAAP8AAAAAAAAADwAAAA",
+    "battery0": "C3jAAX///+CAAAAQgAAAEIAAABCAAAAcgAAAHIAAAByAAAAcgAAAHIAAAByAAAAQgAAAEIAAABB////g",
+    "battery1": "C3jAAX///+CAAAAQvgAAEL4AABC+AAAcvgAAHL4AABy+AAAcvgAAHL4AABy+AAAQvgAAEIAAABB////g",
+    "battery2": "C3jAAX///+CAAAAQvvgAEL74ABC++AAcvvgAHL74ABy++AAcvvgAHL74ABy++AAQvvgAEIAAABB////g",
+    "battery3": "C3jAAX///+CAAAAQvvvgEL774BC+++AcvvvgHL774By+++AcvvvgHL774By+++AQvvvgEIAAABB////g",
+    "battery4": "C3jAAX///+CAAAAQvvvvkL7775C++++cvvvvnL7775y++++cvvvvnL7775y++++QvvvvkIAAABB////g",
+    "batteryExternal": "C3jAAX///+CAAAAQgAMAEIAHABCADgAcgBwAHIA/wByAB4AcgAcAHIAOAByADAQgBgAEIAAABB////g",
+}
 
 
 def sha256(path: Path) -> str:
@@ -81,9 +99,6 @@ def generate(font: Path, size: int, symbols: str, name: str, output: Path, ascii
     cmd += ["--symbols", symbols, "--no-kerning", "--lv-include", "lvgl.h", "--lv-font-name", name, "-o", str(output)]
     subprocess.run(cmd, check=True)
 
-    # Mirror DGN_01 build_lvgl_fonts.py post-processing exactly. The original
-    # generator was run on Windows, so normalize the two path arguments to the
-    # same <PROJECT>\\... form before hashing the complete C file.
     source = output.read_text(encoding="utf-8")
     source = source.replace("    .user_data = NULL,\n", "")
     source = source.replace(str(font), production_font_ref(name, ascii_range))
@@ -141,8 +156,6 @@ def build_inputs() -> dict[str, bytes]:
     return result
 
 
-# Exact compiled-in 16x16 A1 fallback masks from ui_assets.c at SOURCE_SHA.
-# 4G/BT/battery have no compiled bitmap fallback in that source revision.
 ASSET_STUB = r'''
 static const uint8_t UI_GPS_BITMAP[] = {
 0x00,0x00,0x07,0xC0,0x0F,0xE0,0x1F,0xF0,0x1C,0x70,0x18,0x30,0x18,0x30,0x1C,0x70,
@@ -157,6 +170,13 @@ def main() -> None:
     sources = build_inputs()
     sources[base.ASSET_SOURCE] = ASSET_STUB
 
+    for name, encoded in PINNED_ICON_B64.items():
+        meta = base.EXTERNAL_ICON_SOURCES[name]
+        raw = base64.b64decode(encoded)
+        base.require_blob(raw, meta["blob"], meta["path"])
+        sources[meta["path"]] = raw
+        print(f"icon {name}: Git blob {meta['blob']} verified")
+
     def local_fetch(path: str) -> bytes:
         try:
             return sources[path]
@@ -165,7 +185,7 @@ def main() -> None:
 
     base.fetch = local_fetch
     base.main()
-    print("Production resource build used byte-identical DGN_01 compiled font C inputs; no private-repo network access was required.")
+    print("Production resource build used byte-identical DGN_01 compiled fonts and pinned status/battery icon payloads; no private-repo network access was required.")
 
 
 if __name__ == "__main__":
